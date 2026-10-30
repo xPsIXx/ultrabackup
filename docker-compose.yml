@@ -1,0 +1,28 @@
+# Ultra Explorer — ungated deployment
+# Build the image first:  docker build -t ultra-explorer:ungated -f Dockerfile .
+# Then:                   docker compose up -d
+services:
+  ultra:
+    image: ultra-explorer:ungated
+    container_name: ultra
+    ports:
+      - "7373:7373"
+    # Telemetry removal: block the license phone-home (installationId + UA).
+    # Safe — patches A+B+C make entitlements independent of that call.
+    extra_hosts:
+      - "ultra-explorer.app:127.0.0.1"
+    environment:
+      ULTRA_ADMIN_PASSWORD: ${ULTRA_ADMIN_PASSWORD:?set in .env}
+      ULTRA_BIND: 0.0.0.0:7373
+      ULTRA_DATA_DIR: /data
+      ULTRA_LOCAL_ROOTS: /mnt/local
+      ULTRA_UI_DIR: /app/ui
+      ULTRA_RCLONE_BIN: /usr/local/bin/rclone
+    volumes:
+      - ultra-data:/data
+      # mount your files here (or adjust ULTRA_LOCAL_ROOTS):
+      - /path/to/local/files:/mnt/local:ro
+    restart: unless-stopped
+
+volumes:
+  ultra-data:

@@ -29,7 +29,7 @@ BIN="${1:-/usr/local/bin/ultra-server}"
 [ -f "$BIN" ] || { echo "error: $BIN not found" >&2; exit 1; }
 
 ORIG_SHA="5a258e73b94de5f79e33b0c15a9b81da551838b9aeb792fa34db9f329e56c1af"
-PATCHED_SHA="" # set after first verified A+B+C patch
+PATCHED_SHA="092e01cf598b9661a22868201f343bcce489840311b3d571672dcfd35064a083" # v1.2.3 after A+B+C (verified 2026-10-28)
 
 sha() { sha256sum "$BIN" | cut -d' ' -f1; }
 
@@ -38,6 +38,14 @@ trap 'rm -rf "$TMPD"' EXIT
 
 # read N bytes at decimal offset into a file (portable: no od -An, no NULs in vars)
 read_bytes() { dd if="$BIN" bs=1 skip="$2" count="$1" 2>/dev/null > "$TMPD/cur"; }
+
+# sanity: must be an ELF we know the layout of, else anchors are meaningless
+read_bytes 4 0
+printf '\177ELF' > "$TMPD/elf"
+if ! cmp -s "$TMPD/cur" "$TMPD/elf"; then
+    echo "error: $BIN is not an ELF binary — refusing to patch" >&2
+    exit 1
+fi
 
 patch_at() {
     len="$1"; off="$2"; anchor_octal="$3"; new_octal="$4"; label="$5"
@@ -48,6 +56,12 @@ patch_at() {
         echo "  [$label] already patched (offset $off)"
     elif cmp -s "$TMPD/cur" "$TMPD/exp"; then
         dd of="$BIN" bs=1 seek="$off" count="$len" conv=notrunc < "$TMPD/new" 2>/dev/null
+        # verify the write actually landed (guards against partial writes)
+        read_bytes "$len" "$off"
+        if ! cmp -s "$TMPD/cur" "$TMPD/new"; then
+            echo "error: [$label] write verification failed at offset $off" >&2
+            exit 1
+        fi
         echo "  [$label] patched (offset $off)"
     else
         echo "error: [$label] anchor mismatch at file offset $off" >&2
