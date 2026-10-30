@@ -20,8 +20,8 @@ services:
       ULTRA_RCLONE_BIN: /usr/local/bin/rclone
     volumes:
       - ultra-data:/data
-      # mount your files here (or adjust ULTRA_LOCAL_ROOTS):
-      - /path/to/local/files:/mnt/local:ro
+      # mount your files here (or adjust ULTRA_LOCAL_ROOTS) when needed:
+      # - /path/to/local/files:/mnt/local:ro
     restart: unless-stopped
 
 volumes:
