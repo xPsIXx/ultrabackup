@@ -16,8 +16,9 @@
 #      dispatches on a state discriminant byte: even -> requires_pro error,
 #      {2,3} -> unavailable error, odd(1) -> admitted arm. We replace the
 #      `movzbl 0x38(%rsp),%edx` load of that discriminant with `mov $1,%edx`
-#      so the admitted arm is always taken:
-#           C: file 0xa72b11 (VA 0xa73b11)  0f b6 54 24 38 -> b9 01 00 00 90
+#      so the admitted arm is always taken. NOTE: must be BA (edx) — B9 (ecx)
+#      leaves edx as a residual stack value and the gate re-arms per-environment:
+#           C: file 0xa72b11 (VA 0xa73b11)  0f b6 54 24 38 -> ba 01 00 00 90
 #
 # Idempotent: safe to re-run. Fails loudly if any anchor doesn't match (new
 # upstream build — re-locate via LEA xrefs, see SUBSCRIPTION_REMOVALS.md).
@@ -29,7 +30,7 @@ BIN="${1:-/usr/local/bin/ultra-server}"
 [ -f "$BIN" ] || { echo "error: $BIN not found" >&2; exit 1; }
 
 ORIG_SHA="5a258e73b94de5f79e33b0c15a9b81da551838b9aeb792fa34db9f329e56c1af"
-PATCHED_SHA="092e01cf598b9661a22868201f343bcce489840311b3d571672dcfd35064a083" # v1.2.3 after A+B+C (verified 2026-10-28)
+PATCHED_SHA="f42677b106d7a198373c44fc521ad7cf40e37ca8bd84994a1536e8109363d59d" # v1.2.3 after A+B+C (BA/edx variant, verified 2026-10-30)
 
 sha() { sha256sum "$BIN" | cut -d' ' -f1; }
 
@@ -74,8 +75,22 @@ apply_all() {
     # A/B: jne -> 6x NOP (0x90)
     patch_at 6 19996156 '\017\205\232\000\000\000' '\220\220\220\220\220\220' "A/product-access-serializer"
     patch_at 6 20037098 '\017\205\067\001\000\000' '\220\220\220\220\220\220' "B/status-serializer-twin"
-    # C: movzbl 0x38(%rsp),%edx -> mov $1,%edx ; nop
-    patch_at 5 10955537 '\017\266\124\044\070'     '\271\001\000\000\220' "C/admit-product-access"
+    # Migrate binaries carrying the buggy B9 (ecx) variant of C to BA (edx):
+    # they no longer match the original anchor, so patch_at would fail loudly.
+    read_bytes 5 10955537
+    printf '\271\001\000\000\220' > "$TMPD/oldc"
+    if cmp -s "$TMPD/cur" "$TMPD/oldc"; then
+        printf '\272\001\000\000\220' > "$TMPD/newc"
+        dd of="$BIN" bs=1 seek=10955537 count=5 conv=notrunc < "$TMPD/newc" 2>/dev/null
+        read_bytes 5 10955537
+        if ! cmp -s "$TMPD/cur" "$TMPD/newc"; then
+            echo "error: [C] migration write verification failed at offset 10955537" >&2
+            exit 1
+        fi
+        echo "  [C] migrated buggy ecx patch -> edx (offset 10955537)"
+    fi
+    # C: movzbl 0x38(%rsp),%edx -> mov $1,%edx ; nop   (BA = edx; B9 would be ecx — wrong register)
+    patch_at 5 10955537 '\017\266\124\044\070'     '\272\001\000\000\220' "C/admit-product-access"
 }
 
 echo "ungate: $BIN"

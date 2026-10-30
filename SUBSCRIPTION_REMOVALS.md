@@ -48,7 +48,8 @@ upstream build that moved code is detected, never silently mis-patched).
 
 Binary SHAs:
 - Original v1.2.3: `5a258e73b94de5f79e33b0c15a9b81da551838b9aeb792fa34db9f329e56c1af`
-- After A+B+C: `092e01cf598b9661a22868201f343bcce489840311b3d571672dcfd35064a083`
+- After A+B+C (BA/edx variant, current): `f42677b106d7a198373c44fc521ad7cf40e37ca8bd84994a1536e8109363d59d`
+- After A+B+C (buggy B9/ecx variant, superseded 2026-10-30): `092e01cf598b9661a22868201f343bcce489840311b3d571672dcfd35064a083`
 
 ### Patch A — JSON serializer fall-through (capability status → "allowed")
 
@@ -79,8 +80,15 @@ per-capability status is forced; that is what both the UI and backend check).
 - **Anchor:** the `movzbl 0x38(%rsp),%edx` that loads the discriminant, at
   VA **0xa73b11**.
 - **Offset / bytes:** file offset **10955537** (VA 0xa73b11):
-  `0f b6 54 24 38` → `b9 01 00 00 90` (`mov $1,%edx; nop`) — forces the
+  `0f b6 54 24 38` → `ba 01 00 00 90` (`mov $1,%edx; nop`) — forces the
   discriminant to the admitted arm regardless of license state.
+- **⚠️ Register bug (fixed 2026-10-30):** the first revision wrote
+  `b9 01 00 00 90` = `mov $1,%ecx` — wrong register. The branch
+  (`test dl,1` at VA 0xa73b22) reads **EDX**, so with B9 the decision fell
+  through to a residual stack value in EDX: admitted on some volumes/states,
+  `requires_pro` on others (environment-dependent false "verified"/"blocked"
+  results). Must be `BA` (edx). `ungate.sh` auto-migrates binaries carrying
+  the B9 variant.
 
 ## ⚠️ Operational pitfall: data-dir file ownership (fail-closed)
 
@@ -112,11 +120,13 @@ root-user container against the same volume without chowning back afterwards.
 - [x] `/api/product-access` → all capabilities `"status":"allowed"`
       (v1.2.3: `search`, `spaceAnalysis`, `synchronization` all allowed;
       `state.plan` remains `"free"`)
-- [x] A real non-empty search runs and returns a `sessionId`
-      (v1.2.3: verified at t+0s and again 15s after boot, i.e. after online
-      license verification had completed — the runtime gate is bypassed, not
-      just raced)
-- [x] gdb cross-check: breakpoint on admitted-arm of `admit_product_access`
+- [ ] A real non-empty search runs and returns a `sessionId`
+      — the 2026-10-28 "verified" result was a **false positive**: it ran on
+      the buggy B9/ecx variant, where admission depended on a residual EDX
+      value that happened to be odd on that volume. Re-verifying on the
+      BA/edx variant (f42677b1…).
+- [ ] gdb cross-check: breakpoint on admitted-arm of `admit_product_access`
       hit; requires-pro builder never hit during a search
+      (superseded by the register-bug finding above)
 - [ ] Space analysis runs (not separately exercised; same capability path)
 - [ ] Sync is available in UI (same capability path)
