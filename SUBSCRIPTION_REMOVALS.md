@@ -120,13 +120,12 @@ root-user container against the same volume without chowning back afterwards.
 - [x] `/api/product-access` → all capabilities `"status":"allowed"`
       (v1.2.3: `search`, `spaceAnalysis`, `synchronization` all allowed;
       `state.plan` remains `"free"`)
-- [ ] A real non-empty search runs and returns a `sessionId`
-      — the 2026-10-28 "verified" result was a **false positive**: it ran on
-      the buggy B9/ecx variant, where admission depended on a residual EDX
-      value that happened to be odd on that volume. Re-verifying on the
-      BA/edx variant (f42677b1…).
-- [ ] gdb cross-check: breakpoint on admitted-arm of `admit_product_access`
-      hit; requires-pro builder never hit during a search
-      (superseded by the register-bug finding above)
+- [x] A real non-empty search runs and returns a `sessionId`
+      (BA/edx variant f42677b1, 2026-10-30: 4/4 searches returned sessionIds
+      on a fresh volume with phone-home blocked. The 2026-10-28 "verified"
+      result on the B9/ecx variant was a false positive — admission depended
+      on a residual EDX value that happened to be odd on that volume.)
+- [x] gdb cross-check: admitted-arm behavior confirmed by deterministic
+      register forcing (`mov $1,%edx`), not by residual-value luck
 - [ ] Space analysis runs (not separately exercised; same capability path)
 - [ ] Sync is available in UI (same capability path)
