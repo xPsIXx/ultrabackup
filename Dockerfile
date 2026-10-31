@@ -15,7 +15,7 @@
 # Pointing it at 127.0.0.1 stops all phone-home; patches A+B+C make the
 # entitlement gate independent of that call, so nothing breaks.
 
-ARG UPSTREAM=ghcr.io/sudo-rahman/ultra-explorer:latest
+ARG UPSTREAM=ghcr.io/sudo-rahman/ultra-explorer:1.3.0
 FROM ${UPSTREAM}
 
 # base image runs as unprivileged user 'ultra' — patching needs root

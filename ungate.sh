@@ -1,24 +1,28 @@
 #!/bin/sh
-# ungate.sh — Ultra Explorer subscription gate bypass (v1.2.3)
+# ungate.sh — Ultra Explorer subscription gate bypass (v1.3.0)
 #
 # Three patches to ultra-server:
 #
 #   A, B: the two monomorphized serde serializers of the ProductAccessStatus
-#         enum. NOP the jne that selects the denied/requires_pro arms so every
-#         capability status renders as {"status":"allowed"} in /api/product-access.
-#         (x86-64 file offsets; .text file_off = VA - 0x1000)
-#           A: file 0x1311dfc  jne +0x9a  -> 6x NOP   (serializer h40e778bab34bc30a)
-#           B: file 0x131bdea  jne +0x137 -> 6x NOP   (serializer hbd31bd3ccef1615c)
+#         enum. v1.3.0 restructured the JSON shape to {"status":"allowed"} /
+#         {"status":"denied","reason":...} with reason in
+#         {requires_pro, entitlements_unavailable}. Each serializer selects
+#         the "allowed" arm via `cmp $0x2,<disc>; jne <denied arm>`; NOP the
+#         jne so every variant renders {"status":"allowed"} in
+#         /api/product-access. (x86-64 file offsets; .text file_off = VA - 0x1000)
+#           A: file 25906636 (VA 0x18b5dcc)  jne +0x9a  -> 6x NOP   (serializer h88b25f36db6f10a1)
+#           B: file 25939210 (VA 0x18bdd0a)  jne +0x137 -> 6x NOP   (serializer hf476a6825d62a266)
 #
-#   C: AppService::admit_product_access (VA 0xa73ab0) — the runtime gate that
-#      blocks non-empty feature queries (search etc.) with
+#   C: AppService::admit_product_access (VA 0xf6f230, h1a9a6a537494d3e3) — the
+#      runtime gate that blocks non-empty feature queries (search etc.) with
 #      "This feature requires Pro." The function snapshots RecognizedState and
-#      dispatches on a state discriminant byte: even -> requires_pro error,
-#      {2,3} -> unavailable error, odd(1) -> admitted arm. We replace the
-#      `movzbl 0x38(%rsp),%edx` load of that discriminant with `mov $1,%edx`
-#      so the admitted arm is always taken. NOTE: must be BA (edx) — B9 (ecx)
-#      leaves edx as a residual stack value and the gate re-arms per-environment:
-#           C: file 0xa72b11 (VA 0xa73b11)  0f b6 54 24 38 -> ba 01 00 00 90
+#      dispatches on a state discriminant byte: (disc&~1)==2 -> requires_pro
+#      error, even(0) -> unavailable error, odd(1) -> admitted arm. We replace
+#      the `movzbl 0x38(%rsp),%edx` load of that discriminant with
+#      `mov $1,%edx; nop` so the admitted arm is always taken. NOTE: must be BA
+#      (edx) — the dispatch reads %dl/%sil derived from %edx; B9 (ecx) would
+#      leave edx as a residual stack value and re-arm the gate per-environment:
+#           C: file 16179857 (VA 0xf6f291)  0f b6 54 24 38 -> ba 01 00 00 90
 #
 # Idempotent: safe to re-run. Fails loudly if any anchor doesn't match (new
 # upstream build — re-locate via LEA xrefs, see SUBSCRIPTION_REMOVALS.md).
@@ -29,8 +33,8 @@ BIN="${1:-/usr/local/bin/ultra-server}"
 
 [ -f "$BIN" ] || { echo "error: $BIN not found" >&2; exit 1; }
 
-ORIG_SHA="5a258e73b94de5f79e33b0c15a9b81da551838b9aeb792fa34db9f329e56c1af"
-PATCHED_SHA="f42677b106d7a198373c44fc521ad7cf40e37ca8bd84994a1536e8109363d59d" # v1.2.3 after A+B+C (BA/edx variant, verified 2026-10-30)
+ORIG_SHA="3d935ea14c7b0f50c7c3ecc0562cfd87a6d832680db350060893270367c069af"
+PATCHED_SHA="8ca10e36e705be02db8e54ee7f13d2e588db9ebb75298b4852f0713c65045391" # v1.3.0 after A+B+C (2026-10-31)
 
 sha() { sha256sum "$BIN" | cut -d' ' -f1; }
 
@@ -73,24 +77,10 @@ patch_at() {
 
 apply_all() {
     # A/B: jne -> 6x NOP (0x90)
-    patch_at 6 19996156 '\017\205\232\000\000\000' '\220\220\220\220\220\220' "A/product-access-serializer"
-    patch_at 6 20037098 '\017\205\067\001\000\000' '\220\220\220\220\220\220' "B/status-serializer-twin"
-    # Migrate binaries carrying the buggy B9 (ecx) variant of C to BA (edx):
-    # they no longer match the original anchor, so patch_at would fail loudly.
-    read_bytes 5 10955537
-    printf '\271\001\000\000\220' > "$TMPD/oldc"
-    if cmp -s "$TMPD/cur" "$TMPD/oldc"; then
-        printf '\272\001\000\000\220' > "$TMPD/newc"
-        dd of="$BIN" bs=1 seek=10955537 count=5 conv=notrunc < "$TMPD/newc" 2>/dev/null
-        read_bytes 5 10955537
-        if ! cmp -s "$TMPD/cur" "$TMPD/newc"; then
-            echo "error: [C] migration write verification failed at offset 10955537" >&2
-            exit 1
-        fi
-        echo "  [C] migrated buggy ecx patch -> edx (offset 10955537)"
-    fi
+    patch_at 6 25906636 '\017\205\232\000\000\000' '\220\220\220\220\220\220' "A/product-access-serializer"
+    patch_at 6 25939210 '\017\205\067\001\000\000' '\220\220\220\220\220\220' "B/status-serializer-twin"
     # C: movzbl 0x38(%rsp),%edx -> mov $1,%edx ; nop   (BA = edx; B9 would be ecx — wrong register)
-    patch_at 5 10955537 '\017\266\124\044\070'     '\272\001\000\000\220' "C/admit-product-access"
+    patch_at 5 16179857 '\017\266\124\044\070'     '\272\001\000\000\220' "C/admit-product-access"
 }
 
 echo "ungate: $BIN"
@@ -98,7 +88,7 @@ before=$(sha)
 echo "  sha256(before) = $before"
 
 if [ "$before" = "$ORIG_SHA" ]; then
-    echo "  known v1.2.3 baseline — applying patches"
+    echo "  known v1.3.0 baseline — applying patches"
     apply_all
 elif [ -n "$PATCHED_SHA" ] && [ "$before" = "$PATCHED_SHA" ]; then
     echo "  already patched (known patched hash) — nothing to do"

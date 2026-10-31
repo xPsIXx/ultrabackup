@@ -5,7 +5,33 @@ Explorer, so it can be **re-applied on each upstream update**.
 
 Upstream: `https://github.com/Sudo-Rahman/UltraExplorer-Releases` (release
 binaries only — no app source is published). Official Docker image:
-`ghcr.io/sudo-rahman/ultra-explorer:latest`. Version tracked here: **v1.2.3**.
+`ghcr.io/sudo-rahman/ultra-explorer:latest`. Version tracked here: **v1.3.0** (re-applied 2026-10-31; v1.2.3 log preserved below).
+
+## v1.3.0 re-application (2026-10-31)
+
+Upstream v1.3.0 (GHCR tag `1.3.0` — no `v` prefix; `:latest` = same image ID).
+The product-access JSON shape changed to `{"status":"allowed"}` /
+`{"status":"denied","reason":...}` with reason ∈ {`requires_pro`,
+`entitlements_unavailable`}, and a fourth capability (`mediaMetadata`) was
+added. All three patch points re-located via the same LEA-xref method;
+Dockerfile now pins `1.3.0`.
+
+Binary SHAs:
+- Original v1.3.0: `3d935ea14c7b0f50c7c3ecc0562cfd87a6d832680db350060893270367c069af`
+- After A+B+C: `8ca10e36e705be02db8e54ee7f13d2e588db9ebb75298b4852f0713c65045391`
+
+| Patch | Function | Anchor (VA) | File offset | Bytes → replacement |
+|---|---|---|---|---|
+| A | `h88b25f36db6f10a1` (product-access serializer) | `jne` VA 0x18b5dcc (+0x9a) | 25906636 | `0f859a000000` → 6×NOP |
+| B | `hf476a6825d62a266` (status serializer twin) | `jne` VA 0x18bdd0a (+0x137) | 25939210 | `0f8537010000` → 6×NOP |
+| C | `h1a9a6a537494d3e3` (AppService::admit_product_access, VA 0xf6f230) | `movzbl 0x38(%rsp),%edx` VA 0xf6f291 | 16179857 | `0fb6542438` → `ba010000 90` (BA/edx, **not** B9) |
+
+v1.3.0 dispatch in C: `(disc&~1)==2` → requires_pro error, even(0) →
+unavailable error, odd(1) → admitted arm — forcing `edx=1` takes the
+admitted arm (same register requirement as v1.2.3; B9/ecx would re-arm it).
+
+Verified 2026-10-31: local docker build OK (the exact CI step); UI 200;
+`/api/product-access` → all four capabilities `allowed`, plan `free`.
 
 The Linux Tauri binary ships a Rust backend (`ultra-server`) that enforces the
 tier. The browser frontend gates the UI off `GET /api/product-access`. Both
