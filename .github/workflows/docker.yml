@@ -19,7 +19,7 @@ jobs:
       - uses: docker/login-action@v3
         with:
           registry: ghcr.io
-          username: ${{ toLower(github.actor) }}
+          username: ${{ lower(github.actor) }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Compute version tag
@@ -33,5 +33,5 @@ jobs:
           platforms: linux/amd64
           push: true
           tags: |
-            ghcr.io/${{ toLower(github.repository_owner) }}/ultrabackup:latest
-            ghcr.io/${{ toLower(github.repository_owner) }}/ultrabackup:${{ steps.vars.outputs.version }}
+            ghcr.io/${{ lower(github.repository_owner) }}/ultrabackup:latest
+            ghcr.io/${{ lower(github.repository_owner) }}/ultrabackup:${{ steps.vars.outputs.version }}
